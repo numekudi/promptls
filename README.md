@@ -32,12 +32,11 @@ cargo install --path .
 `--root <dir>` > `$PROMPTLS_ROOT` > **nearest ancestor process whose cwd is
 outside the temp dir**.
 
-Why the ancestor walk: Claude Code spawns `$EDITOR` from the project directory,
-so the editor's cwd is already right. Codex spawns `$EDITOR` with cwd=`/tmp`,
-but the Codex process itself still sits in the project — promptls walks up
-the process tree (via `sysinfo`: `/proc` on Linux, `proc_pidinfo` on macOS)
-until it finds a cwd outside the temp dir. No editor-side config needed for
-either. An explicit root inside a temp dir is a hard error.
+Both Claude Code and Codex spawn `$EDITOR` from the project directory, so the
+editor's cwd is normally already right and the walk stops immediately. The
+ancestor walk (via `sysinfo`: `/proc` on Linux, `proc_pidinfo` on macOS) is a
+safety net for wrappers/multiplexers that start the editor from somewhere else.
+An explicit root inside a temp dir is a hard error.
 
 Supported: Linux (incl. WSL) and macOS. Windows is untested.
 
@@ -49,6 +48,7 @@ Attach only to `.md` files under the temp dir, never to ordinary Markdown:
 vim.lsp.config("promptls", {
   cmd = { "promptls" },
   filetypes = { "markdown" },
+  -- Attach only to temp-dir .md files (the Ctrl+G buffers), not ordinary Markdown.
   root_dir = function(bufnr, on_dir)
     local name = vim.api.nvim_buf_get_name(bufnr)
     if not name:match("%.md$") then return end
@@ -58,7 +58,7 @@ vim.lsp.config("promptls", {
     local real_tmpdir = (vim.uv.fs_realpath(tmpdir) or tmpdir):gsub("/*$", "/")
     local real_name = vim.uv.fs_realpath(name) or name
     if vim.startswith(name, tmpdir) or vim.startswith(real_name, real_tmpdir) then
-      on_dir(vim.fn.getcwd()) -- nominal; promptls resolves the real root itself
+      on_dir(vim.fn.getcwd())
     end
   end,
 })
@@ -68,6 +68,30 @@ vim.lsp.enable("promptls")
 Then `Ctrl+G` in Claude Code / Codex → type `@src/co` → completion (nvim-cmp
 picks it up via the `@` trigger, or `<C-x><C-o>`) → `K` for hover, `gd` to
 jump, `Ctrl+o` to come back.
+
+Tip for nvim-cmp users: drop the `path` source in these buffers, otherwise it
+lists the temp dir (where the buffer lives) next to promptls's results:
+
+```lua
+-- in your LspAttach handler
+if client.name == "promptls" then
+  require("cmp").setup.buffer({ sources = { { name = "nvim_lsp" }, { name = "buffer" } } })
+end
+```
+
+## Keeping the CLI output visible while editing
+
+Claude Code hands the whole screen to `$EDITOR` unless the editor's basename
+contains a GUI-editor name (`code`, `cursor`, `subl`, `gedit`, ...). A wrapper
+named e.g. `nvim-code` that opens Neovim in a side pane (tmux split or Windows
+Terminal `wt.exe split-pane`) and blocks until it closes lets you read the
+model's last output while writing the next prompt:
+
+```sh
+alias claude='VISUAL=nvim-code EDITOR=nvim-code claude'
+```
+
+See the author's dotfiles for the wrapper; it is not part of promptls.
 
 ## Debugging
 

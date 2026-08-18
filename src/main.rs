@@ -21,8 +21,7 @@ use tower_lsp::{LspService, Server};
 struct Args {
     /// Project root used to resolve `@path` references.
     /// Precedence: --root, then $PROMPTLS_ROOT, then the nearest ancestor
-    /// process whose cwd is outside the temp dir (handles Codex, which opens
-    /// $EDITOR with cwd=/tmp).
+    /// process whose cwd is outside the temp dir.
     #[arg(long)]
     root: Option<PathBuf>,
 
@@ -53,9 +52,10 @@ fn is_temp(path: &Path) -> bool {
 }
 
 /// Working directories of this process and its ancestors, nearest first.
-/// Codex opens `$EDITOR` with cwd=/tmp, but the Codex process itself still sits
-/// in the project directory, so walking up the process tree recovers the real
-/// root without any editor-side config. `sysinfo` abstracts the platform
+/// Claude Code and Codex spawn `$EDITOR` from the project directory, so the
+/// first entry is normally already the root; walking further up is a safety
+/// net for editor wrappers/multiplexers that start from elsewhere (the CLI
+/// process itself always sits in the project). `sysinfo` abstracts the platform
 /// (`/proc` on Linux, `proc_pidinfo` on macOS; same-user processes need no
 /// elevated privileges on either).
 fn ancestor_cwds() -> Vec<(u32, PathBuf)> {

@@ -216,9 +216,14 @@ impl LanguageServer for Backend {
                 CompletionItem {
                     label: insert.clone(),
                     kind: Some(if e.is_dir { CompletionItemKind::FOLDER } else { CompletionItemKind::FILE }),
-                    // The server already ranked fuzzily; make the client's own
-                    // prefix filter a no-op by matching the typed text exactly.
-                    filter_text: Some(query_text.clone()),
+                    // Clients (nvim-cmp, VS Code) re-filter items against the
+                    // text typed *after* the request was sent; if a keystroke
+                    // lands while a request is in flight, a filterText equal
+                    // to the old query would match nothing and the list would
+                    // go blank. Using the path itself keeps stale-but-superset
+                    // responses usable; the server's fuzzy ranking still
+                    // decides which 50 paths are offered.
+                    filter_text: Some(insert.clone()),
                     sort_text: Some(format!("{i:05}")),
                     text_edit: Some(CompletionTextEdit::Edit(TextEdit { range, new_text: insert })),
                     ..Default::default()
