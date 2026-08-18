@@ -8,6 +8,10 @@ The prompt file lives in `$TMPDIR`, but everything you want to reference is in
 your project. promptls resolves `@path` references against the **project root**
 (the directory the editor was launched from), not the temp dir.
 
+## Demo
+
+![promptls demo](assets/demo.gif)
+
 ## Features
 
 | Feature | What it does |
