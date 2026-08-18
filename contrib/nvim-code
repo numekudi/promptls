@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# nvim-code — $VISUAL/$EDITOR wrapper that opens Neovim in a tmux side pane
+# and blocks until it closes, so Claude Code / Codex (Ctrl+G) keep their
+# output visible while you write the prompt. Outside tmux it just runs nvim
+# in the current terminal.
+#
+# Why the odd name: Claude Code only avoids taking over the screen
+# (alternate screen) when the editor's basename contains a known GUI editor
+# name (code, cursor, subl, gedit, ...). "nvim-code" contains "code".
+#
+# Use via alias so git etc. keep the plain editor:
+#   alias claude='VISUAL=nvim-code EDITOR=nvim-code claude'
+set -euo pipefail
+
+file=${1:?usage: nvim-code <file>}
+
+if [ -z "${TMUX:-}" ]; then
+  exec nvim "$file"
+fi
+
+# Runner executed inside the pane: edit, then signal completion via a FIFO.
+# PATH is handed over explicitly because the tmux server's environment may
+# be older/leaner than the shell that launched us (e.g. missing ~/.cargo/bin,
+# where promptls lives).
+fifo=$(mktemp -u "${file}.XXXXXX.fifo")
+mkfifo "$fifo"
+runner="${fifo%.fifo}.sh"
+cat > "$runner" <<RUN
+#!/usr/bin/env bash
+export PATH=$(printf '%q' "$PATH")
+nvim "$file"
+echo done > "$fifo"
+RUN
+chmod +x "$runner"
+trap 'rm -f "$fifo" "$runner"' EXIT
+
+# Both CLIs spawn us from the project directory; open the pane there so
+# promptls resolves @paths against it.
+tmux split-window -h -c "$PWD" "$runner"
+
+# Block until the pane's nvim exits (the CLI waits for *this* process).
+read -r _ < "$fifo"

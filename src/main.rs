@@ -8,17 +8,21 @@
 mod index;
 mod refs;
 mod server;
+mod setup;
 mod text;
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use tower_lsp::{LspService, Server};
 
 #[derive(Parser, Debug)]
 #[command(name = "promptls", version, about)]
 struct Args {
+    #[command(subcommand)]
+    command: Option<Command>,
+
     /// Project root used to resolve `@path` references.
     /// Precedence: --root, then $PROMPTLS_ROOT, then the nearest ancestor
     /// process whose cwd is outside the temp dir.
@@ -28,6 +32,35 @@ struct Args {
     /// Stop indexing after this many filesystem entries.
     #[arg(long, default_value_t = 200_000)]
     max_entries: usize,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Print the editor setup guide (Neovim config, tmux side-pane wrapper, aliases).
+    Setup {
+        /// Install the bundled `nvim-code` wrapper into DIR (default: ~/.local/bin).
+        #[arg(long, value_name = "DIR", num_args = 0..=1, default_missing_value = "")]
+        install_wrapper: Option<PathBuf>,
+
+        /// Overwrite an existing, differing wrapper.
+        #[arg(long, requires = "install_wrapper")]
+        force: bool,
+    },
+}
+
+/// `promptls setup [--install-wrapper [DIR]] [--force]`.
+fn run_setup(install_wrapper: Option<PathBuf>, force: bool) -> anyhow::Result<()> {
+    match install_wrapper {
+        Some(dir) => {
+            // Empty = flag given without a value: use the default location.
+            let dir = if dir.as_os_str().is_empty() { setup::default_bin_dir()? } else { dir };
+            let dest = setup::install_wrapper(&dir, force)?;
+            println!("installed {}", dest.display());
+            println!("\nNow add to your shell rc:\n\n{}", setup::ALIASES);
+        }
+        None => print!("{}", setup::guide()),
+    }
+    Ok(())
 }
 
 /// Directories that count as "temporary": the OS temp dir (honors $TMPDIR)
@@ -152,6 +185,9 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let args = Args::parse();
+    if let Some(Command::Setup { install_wrapper, force }) = args.command {
+        return run_setup(install_wrapper, force);
+    }
     let root = resolve_root(&args)?;
     tracing::info!("promptls root = {}", root.display());
 

@@ -1,8 +1,8 @@
 # promptls
 
 A tiny language server for **one-shot prompt files** — the buffers Claude Code
-(`$TMPDIR/claude-prompt-*.md`) and Codex (`/tmp/.tmpXXXX.md`) open in `$EDITOR`
-on `Ctrl+G`. Rule of thumb: any `.md` directly under the temp dir is a prompt.
+(`$TMPDIR/claude-<uid>/claude-prompt-*.md`) and Codex (`/tmp/.tmpXXXX.md`) open
+in `$EDITOR` on `Ctrl+G`. Rule of thumb: any `.md` under the temp dir is a prompt.
 
 The prompt file lives in `$TMPDIR`, but everything you want to reference is in
 your project. promptls resolves `@path` references against the **project root**
@@ -29,7 +29,12 @@ Reference syntax: `@` at a word boundary followed by a path; ends at whitespace 
 
 ```sh
 cargo install --path .
+promptls setup   # prints the Neovim config, the tmux wrapper and the aliases below
 ```
+
+`cargo install` cannot print post-install instructions, so `promptls setup`
+carries the guide; `promptls setup --install-wrapper` drops the bundled
+`nvim-code` wrapper (see below) into `~/.local/bin`.
 
 ## Root resolution
 
@@ -46,7 +51,8 @@ Supported: Linux (incl. WSL) and macOS. Windows is untested.
 
 ## Neovim (0.11+)
 
-Attach only to `.md` files under the temp dir, never to ordinary Markdown:
+Attach only to `.md` files under the temp dir, never to ordinary Markdown
+([`contrib/promptls.lua`](contrib/promptls.lua), also printed by `promptls setup`):
 
 ```lua
 vim.lsp.config("promptls", {
@@ -86,16 +92,22 @@ end
 ## Keeping the CLI output visible while editing
 
 Claude Code hands the whole screen to `$EDITOR` unless the editor's basename
-contains a GUI-editor name (`code`, `cursor`, `subl`, `gedit`, ...). A wrapper
-named e.g. `nvim-code` that opens Neovim in a tmux side pane and blocks until
-it closes lets you read the model's last output while writing the next prompt
-(outside tmux it simply runs nvim full-screen):
+contains a GUI-editor name (`code`, `cursor`, `subl`, `gedit`, ...). The bundled
+[`contrib/nvim-code`](contrib/nvim-code) wrapper exploits that: it opens Neovim
+in a tmux side pane and blocks until it closes, so you can read the model's
+last output while writing the next prompt (outside tmux it simply runs nvim
+full-screen). The name is a constraint, not a choice — it has to contain `code`.
+
+```sh
+promptls setup --install-wrapper        # -> ~/.local/bin/nvim-code (or pass a DIR)
+```
+
+Then route only the AI CLIs through it, so git etc. keep the plain editor:
 
 ```sh
 alias claude='VISUAL=nvim-code EDITOR=nvim-code claude'
+alias codex='VISUAL=nvim-code EDITOR=nvim-code codex'
 ```
-
-See the author's dotfiles for the wrapper; it is not part of promptls.
 
 ## Debugging
 
