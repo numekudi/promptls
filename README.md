@@ -83,9 +83,9 @@ end
 
 Claude Code hands the whole screen to `$EDITOR` unless the editor's basename
 contains a GUI-editor name (`code`, `cursor`, `subl`, `gedit`, ...). A wrapper
-named e.g. `nvim-code` that opens Neovim in a side pane (tmux split or Windows
-Terminal `wt.exe split-pane`) and blocks until it closes lets you read the
-model's last output while writing the next prompt:
+named e.g. `nvim-code` that opens Neovim in a tmux side pane and blocks until
+it closes lets you read the model's last output while writing the next prompt
+(outside tmux it simply runs nvim full-screen):
 
 ```sh
 alias claude='VISUAL=nvim-code EDITOR=nvim-code claude'
