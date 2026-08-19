@@ -39,8 +39,11 @@ enum Command {
     /// Print the editor setup guide (Neovim config, tmux side-pane wrapper, aliases).
     Setup {
         /// Install the bundled `nvim-code` wrapper into DIR (default: ~/.local/bin).
-        #[arg(long, value_name = "DIR", num_args = 0..=1, default_missing_value = "")]
-        install_wrapper: Option<PathBuf>,
+        // `Option<Option<_>>`: outer = flag present, inner = DIR given.
+        // (A `default_missing_value = ""` does not work: clap refuses an
+        // empty value for the argument.)
+        #[arg(long, value_name = "DIR", num_args = 0..=1)]
+        install_wrapper: Option<Option<PathBuf>>,
 
         /// Overwrite an existing, differing wrapper.
         #[arg(long, requires = "install_wrapper")]
@@ -49,11 +52,14 @@ enum Command {
 }
 
 /// `promptls setup [--install-wrapper [DIR]] [--force]`.
-fn run_setup(install_wrapper: Option<PathBuf>, force: bool) -> anyhow::Result<()> {
+fn run_setup(install_wrapper: Option<Option<PathBuf>>, force: bool) -> anyhow::Result<()> {
     match install_wrapper {
         Some(dir) => {
-            // Empty = flag given without a value: use the default location.
-            let dir = if dir.as_os_str().is_empty() { setup::default_bin_dir()? } else { dir };
+            // Flag given without a value: use the default location.
+            let dir = match dir {
+                Some(dir) => dir,
+                None => setup::default_bin_dir()?,
+            };
             let dest = setup::install_wrapper(&dir, force)?;
             println!("installed {}", dest.display());
             println!("\nNow add to your shell rc:\n\n{}", setup::ALIASES);
