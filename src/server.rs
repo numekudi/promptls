@@ -83,6 +83,45 @@ impl Backend {
     }
 }
 
+/// Line and character counts of a text file, streamed so it stays cheap
+/// even when the file is far larger than the preview read limit.
+/// Characters are counted as UTF-8 scalar values (non-continuation bytes),
+/// which is the figure closest to what an LLM's context cost tracks.
+/// A trailing fragment without a final newline counts as a line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TextStats {
+    lines: usize,
+    chars: usize,
+}
+
+fn text_stats(path: &Path) -> std::io::Result<TextStats> {
+    use std::io::Read;
+    let mut f = std::io::BufReader::new(std::fs::File::open(path)?);
+    let mut buf = [0u8; 64 * 1024];
+    let mut stats = TextStats { lines: 0, chars: 0 };
+    let mut last = b'\n';
+    loop {
+        let n = f.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        for &b in &buf[..n] {
+            // UTF-8 continuation bytes are 0b10xxxxxx; everything else starts a char.
+            if b & 0xC0 != 0x80 {
+                stats.chars += 1;
+            }
+            if b == b'\n' {
+                stats.lines += 1;
+            }
+        }
+        last = buf[n - 1];
+    }
+    if last != b'\n' {
+        stats.lines += 1;
+    }
+    Ok(stats)
+}
+
 /// Markdown hover body for a path (file preview or directory listing).
 fn hover_markdown(root: &Path, r: &PathRef) -> String {
     let abs = root.join(&r.path);
@@ -130,10 +169,14 @@ fn hover_markdown(root: &Path, r: &PathRef) -> String {
     // Use a fence longer than any backtick run in the preview so content
     // containing ``` does not break the block.
     let fence = "`".repeat(4);
+    // Counts come from a full streaming pass (the preview bytes are bounded).
+    let TextStats { lines, chars } = match text_stats(&abs) {
+        Ok(s) => s,
+        Err(err) => return format!("`{}` — cannot read: {err}", r.path),
+    };
     format!(
-        "**{}** ({} bytes){}\n{fence}{lang}\n{}\n{fence}",
+        "**{}** ({lines} lines, {chars} chars){}\n{fence}{lang}\n{}\n{fence}",
         r.path,
-        meta.len(),
         if truncated { format!(" — first {shown} lines") } else { String::new() },
         preview.join("\n"),
     )
@@ -262,5 +305,37 @@ impl LanguageServer for Backend {
         let line = r.line.map(|l| l.saturating_sub(1)).unwrap_or(0);
         let p = Position::new(line, 0);
         Ok(Some(GotoDefinitionResponse::Scalar(Location { uri: target, range: Range::new(p, p) })))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp_file(name: &str, contents: &[u8]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("promptls-test-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join(name);
+        std::fs::write(&p, contents).unwrap();
+        p
+    }
+
+    #[test]
+    fn text_stats_counts_lines_and_utf8_chars() {
+        let st = |name, bytes| text_stats(&tmp_file(name, bytes)).unwrap();
+        assert_eq!(st("empty", b""), TextStats { lines: 0, chars: 0 });
+        assert_eq!(st("nl", b"a\nb\n"), TextStats { lines: 2, chars: 4 });
+        assert_eq!(st("nonl", b"a\nb"), TextStats { lines: 2, chars: 3 });
+        // 3 multibyte chars (9 bytes) + newline = 4 chars.
+        assert_eq!(st("jp", "日本語\n".as_bytes()), TextStats { lines: 1, chars: 4 });
+    }
+
+    #[test]
+    fn hover_shows_line_count() {
+        let p = tmp_file("hover.txt", b"one\ntwo\nthree\n");
+        let root = p.parent().unwrap();
+        let r = PathRef { start: 0, end: 10, path: "hover.txt".into(), line: None };
+        let md = hover_markdown(root, &r);
+        assert!(md.contains("(3 lines, 14 chars)"), "{md}");
     }
 }
